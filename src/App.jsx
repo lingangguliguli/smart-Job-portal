@@ -41,22 +41,7 @@ const ROWS_PER_PAGE = 8;
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-const INITIAL_DATA = [
-  { id: generateId(), company: 'Stripe', role: 'Senior Frontend Engineer', location: 'Bangalore, KA', salary: 3500000, platform: 'LinkedIn', status: 'Interviewing', appliedDate: '2026-03-01', interviewDate: '2026-03-18', notes: 'Passed phone screen. System design round next week.', bookmarked: true },
-  { id: generateId(), company: 'Figma', role: 'Product Designer', location: 'Remote', salary: 2800000, platform: 'Company Career Page', status: 'Applied', appliedDate: '2026-03-10', interviewDate: '', notes: 'Submitted portfolio link.', bookmarked: false },
-  { id: generateId(), company: 'Vercel', role: 'Full Stack Engineer', location: 'Remote', salary: 3200000, platform: 'Referral', status: 'Offer', appliedDate: '2026-02-15', interviewDate: '2026-03-01', notes: 'Offer: ₹32L base + equity. Deadline March 28.', bookmarked: true },
-  { id: generateId(), company: 'Notion', role: 'Backend Engineer', location: 'Hyderabad, TS', salary: 3000000, platform: 'LinkedIn', status: 'Rejected', appliedDate: '2026-02-20', interviewDate: '2026-03-05', notes: 'Rejected after final round. Feedback: need more distributed systems exp.', bookmarked: false },
-  { id: generateId(), company: 'Datadog', role: 'Site Reliability Engineer', location: 'Pune, MH', salary: 3600000, platform: 'Indeed', status: 'Applied', appliedDate: '2026-03-15', interviewDate: '', notes: '', bookmarked: false },
-  { id: generateId(), company: 'Linear', role: 'Frontend Engineer', location: 'Remote', salary: 2500000, platform: 'AngelList', status: 'Interviewing', appliedDate: '2026-02-28', interviewDate: '2026-03-20', notes: 'Take-home assignment submitted. Awaiting review.', bookmarked: true },
-  { id: generateId(), company: 'Supabase', role: 'Developer Advocate', location: 'Remote', salary: 2200000, platform: 'Company Career Page', status: 'Applied', appliedDate: '2026-03-12', interviewDate: '', notes: 'Applied via their open source contributor pipeline.', bookmarked: false },
-  { id: generateId(), company: 'Cloudflare', role: 'Systems Engineer', location: 'Chennai, TN', salary: 3800000, platform: 'LinkedIn', status: 'Interviewing', appliedDate: '2026-02-10', interviewDate: '2026-03-22', notes: 'Two rounds done. Final round with VP Eng.', bookmarked: false },
-  { id: generateId(), company: 'Plaid', role: 'API Engineer', location: 'Mumbai, MH', salary: 3400000, platform: 'Referral', status: 'Rejected', appliedDate: '2026-01-25', interviewDate: '2026-02-12', notes: 'Position was filled internally.', bookmarked: false },
-  { id: generateId(), company: 'Shopify', role: 'React Developer', location: 'Remote', salary: 2600000, platform: 'LinkedIn', status: 'Applied', appliedDate: '2026-03-20', interviewDate: '', notes: 'Tailored resume for commerce focus.', bookmarked: false },
-  { id: generateId(), company: 'Loom', role: 'Growth Engineer', location: 'Remote', salary: 2400000, platform: 'Glassdoor', status: 'Offer', appliedDate: '2026-02-05', interviewDate: '2026-02-25', notes: 'Offer: ₹24L. Benefits are great. Considering.', bookmarked: true },
-  { id: generateId(), company: 'Twilio', role: 'Software Engineer II', location: 'Gurgaon, HR', salary: 2800000, platform: 'Indeed', status: 'Applied', appliedDate: '2026-03-08', interviewDate: '', notes: '', bookmarked: false },
-  { id: generateId(), company: 'HashiCorp', role: 'Platform Engineer', location: 'Remote', salary: 3500000, platform: 'Company Career Page', status: 'Interviewing', appliedDate: '2026-02-18', interviewDate: '2026-03-15', notes: 'Strong alignment with Terraform experience.', bookmarked: false },
-  { id: generateId(), company: 'Coinbase', role: 'Blockchain Engineer', location: 'Bangalore, KA', salary: 4500000, platform: 'Referral', status: 'Applied', appliedDate: '2026-03-22', interviewDate: '', notes: 'Referred by college friend on the infra team.', bookmarked: false },
-];
+const INITIAL_DATA = [];
 
 // ─── Hooks ───────────────────────────────────────────────
 
