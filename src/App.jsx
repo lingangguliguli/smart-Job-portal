@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useContext, createContext, useMemo, useRef } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, Legend } from 'recharts';
-import { FiHome, FiBriefcase, FiPlusCircle, FiBarChart2, FiSearch, FiEdit2, FiTrash2, FiBookmark, FiChevronLeft, FiChevronRight, FiX, FiCheck, FiFilter, FiArrowUp, FiArrowDown, FiMapPin, FiDollarSign, FiCalendar, FiStar, FiTrendingUp } from 'react-icons/fi';
+import { FiHome, FiBriefcase, FiPlusCircle, FiBarChart2, FiSearch, FiEdit2, FiTrash2, FiBookmark, FiChevronLeft, FiChevronRight, FiX, FiCheck, FiFilter, FiArrowUp, FiArrowDown, FiMapPin, FiDollarSign, FiCalendar, FiStar, FiTrendingUp, FiExternalLink, FiClock, FiGlobe, FiKey, FiRefreshCw } from 'react-icons/fi';
 import { format, parseISO, differenceInDays, startOfMonth, subMonths } from 'date-fns';
 
 const THEME = {
@@ -39,6 +39,18 @@ const STATUSES = ['Applied', 'Interviewing', 'Offer', 'Rejected'];
 const PIPELINE_TABS = ['All', 'Applied', 'Interviewing', 'Offer', 'Rejected', 'Bookmarked'];
 const ROWS_PER_PAGE = 8;
 
+const JSEARCH_BASE_URL = 'https://jsearch.p.rapidapi.com/search';
+const JSEARCH_HOST = 'jsearch.p.rapidapi.com';
+const INDIA_CITIES = ['All India', 'Bangalore', 'Mumbai', 'Delhi NCR', 'Hyderabad', 'Pune', 'Chennai', 'Kolkata', 'Remote'];
+const EMPLOYMENT_TYPES = [
+  { value: '', label: 'All Types' },
+  { value: 'FULLTIME', label: 'Full-time' },
+  { value: 'PARTTIME', label: 'Part-time' },
+  { value: 'CONTRACTOR', label: 'Contract' },
+  { value: 'INTERN', label: 'Internship' },
+];
+const POPULAR_SEARCHES = ['Software Engineer', 'Data Analyst', 'Product Manager', 'Frontend Developer', 'DevOps Engineer', 'UI/UX Designer', 'Backend Developer', 'Machine Learning'];
+
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const INITIAL_DATA = [];
@@ -69,6 +81,89 @@ function useDebounce(value, delay = 500) {
     return () => clearTimeout(id);
   }, [value, delay]);
   return debounced;
+}
+
+function useJobSearch() {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [page, setPage] = useState(1);
+  const [employmentType, setEmploymentType] = useState('');
+  const [location, setLocation] = useState('All India');
+  const cache = useRef({});
+  const debouncedQuery = useDebounce(query, 800);
+
+  const getApiKey = useCallback(() => {
+    try { return window.localStorage.getItem('sjt_rapidapi_key') || ''; }
+    catch { return ''; }
+  }, []);
+
+  const fetchJobs = useCallback(async (searchQuery, pg, empType, loc) => {
+    const apiKey = getApiKey();
+    if (!apiKey) { setError('api_key_missing'); setResults([]); return; }
+    if (!searchQuery.trim()) { setResults([]); setError(null); return; }
+
+    const locationQuery = loc === 'All India' ? 'India' : loc === 'Remote' ? 'Remote India' : `${loc} India`;
+    const cacheKey = `${searchQuery}|${pg}|${empType}|${locationQuery}`;
+    if (cache.current[cacheKey]) {
+      setResults(cache.current[cacheKey].data);
+      setError(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams({
+        query: `${searchQuery} in ${locationQuery}`,
+        page: String(pg),
+        num_pages: '1',
+      });
+      if (empType) params.append('employment_types', empType);
+
+      const response = await fetch(`${JSEARCH_BASE_URL}?${params.toString()}`, {
+        method: 'GET',
+        headers: { 'X-RapidAPI-Key': apiKey, 'X-RapidAPI-Host': JSEARCH_HOST },
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) throw new Error('Rate limit exceeded. Please wait a moment and try again.');
+        if (response.status === 403 || response.status === 401) throw new Error('Invalid API key. Please update your RapidAPI key in settings.');
+        throw new Error(`API error (${response.status}). Please try again.`);
+      }
+
+      const json = await response.json();
+      const data = json.data || [];
+      cache.current[cacheKey] = { data };
+      setResults(data);
+    } catch (err) {
+      setError(err.message || 'Failed to fetch jobs. Check your connection and try again.');
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [getApiKey]);
+
+  useEffect(() => {
+    if (debouncedQuery.trim()) {
+      setPage(1);
+      fetchJobs(debouncedQuery, 1, employmentType, location);
+    } else {
+      setResults([]);
+      setError(null);
+    }
+  }, [debouncedQuery, employmentType, location, fetchJobs]);
+
+  const goToPage = useCallback((pg) => {
+    setPage(pg);
+    fetchJobs(debouncedQuery, pg, employmentType, location);
+  }, [debouncedQuery, employmentType, location, fetchJobs]);
+
+  const clearCache = useCallback(() => { cache.current = {}; }, []);
+
+  return { query, setQuery, results, loading, error, page, goToPage, employmentType, setEmploymentType, location, setLocation, refetch: () => { clearCache(); fetchJobs(query, page, employmentType, location); } };
 }
 
 function useApplications(initialData) {
@@ -157,10 +252,176 @@ function EmptyState({ message }) {
   );
 }
 
-function Sidebar({ currentPage, onNavigate }) {
+function APIKeyModal({ onClose }) {
+  const [key, setKey] = useState(() => {
+    try { return window.localStorage.getItem('sjt_rapidapi_key') || ''; }
+    catch { return ''; }
+  });
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    try { window.localStorage.setItem('sjt_rapidapi_key', key.trim()); }
+    catch {}
+    setSaved(true);
+    setTimeout(() => { setSaved(false); onClose(); }, 1200);
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: THEME.bg.overlay, zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'fadeIn 0.2s ease' }} onClick={onClose}>
+      <div style={{ background: THEME.bg.surface, border: `1px solid ${THEME.border.default}`, borderRadius: THEME.radius.lg, padding: THEME.spacing.xl, width: '440px', maxWidth: '90vw', boxShadow: '0 24px 48px rgba(0,0,0,0.5)' }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: THEME.spacing.lg }}>
+          <h3 style={{ fontFamily: THEME.font.display, fontSize: '16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: THEME.spacing.sm, color: THEME.text.primary }}>
+            <FiKey size={16} style={{ color: THEME.accent.primary }} /> API Configuration
+          </h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: THEME.text.muted, cursor: 'pointer', padding: '4px' }}><FiX size={16} /></button>
+        </div>
+        <div style={{ background: THEME.bg.elevated, borderRadius: THEME.radius.md, padding: THEME.spacing.md, marginBottom: THEME.spacing.md, border: `1px solid ${THEME.border.subtle}` }}>
+          <p style={{ fontSize: '12px', color: THEME.text.secondary, lineHeight: 1.7, margin: 0 }}>
+            This app uses the <strong style={{ color: THEME.text.primary }}>JSearch API</strong> via RapidAPI to fetch real-time job listings. The free tier gives you <strong style={{ color: THEME.accent.primaryText }}>200 requests/month</strong>.
+          </p>
+          <a href="https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch" target="_blank" rel="noopener noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: THEME.accent.primary, textDecoration: 'none', fontSize: '12px', fontWeight: 500, marginTop: THEME.spacing.sm }}
+          >
+            Get your free API key <FiExternalLink size={11} />
+          </a>
+        </div>
+        <label style={{ fontSize: '11px', fontWeight: 600, color: THEME.text.muted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px', display: 'block' }}>X-RapidAPI-Key</label>
+        <input
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          placeholder="Paste your API key here..."
+          style={{ width: '100%', padding: '10px 12px', background: THEME.bg.elevated, border: `1px solid ${THEME.border.default}`, borderRadius: THEME.radius.sm, color: THEME.text.primary, fontSize: '13px', fontFamily: THEME.font.mono, outline: 'none', marginBottom: THEME.spacing.md, transition: 'border-color 0.15s' }}
+          onFocus={(e) => e.target.style.borderColor = THEME.accent.primary}
+          onBlur={(e) => e.target.style.borderColor = THEME.border.default}
+        />
+        <button onClick={handleSave} disabled={!key.trim()} style={{ width: '100%', padding: '10px', background: saved ? '#14532D' : !key.trim() ? THEME.border.default : THEME.accent.primary, color: saved ? '#34D399' : '#fff', border: 'none', borderRadius: THEME.radius.sm, fontWeight: 600, fontSize: '13px', fontFamily: THEME.font.body, cursor: key.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: THEME.spacing.sm, transition: 'all 0.2s' }}>
+          {saved ? <><FiCheck size={14} /> Saved!</> : 'Save API Key'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function JobCard({ job, onTrack, tracked }) {
+  const formatSalary = (min, max, currency) => {
+    if (!min && !max) return null;
+    const fmt = (v) => {
+      if (!v) return null;
+      if (currency === 'INR' || currency === 'inr') return `₹${(v / 100000).toFixed(1)}L`;
+      if (currency === 'USD' || currency === 'usd') return `$${(v / 1000).toFixed(0)}K`;
+      return `${currency || ''}${v.toLocaleString()}`;
+    };
+    const minF = fmt(min);
+    const maxF = fmt(max);
+    if (minF && maxF && minF !== maxF) return `${minF} – ${maxF}`;
+    return minF || maxF;
+  };
+
+  const formatPostedDate = (dateStr) => {
+    if (!dateStr) return null;
+    try {
+      const days = differenceInDays(new Date(), parseISO(dateStr));
+      if (days === 0) return 'Today';
+      if (days === 1) return 'Yesterday';
+      if (days < 7) return `${days}d ago`;
+      if (days < 30) return `${Math.floor(days / 7)}w ago`;
+      return `${Math.floor(days / 30)}mo ago`;
+    } catch { return null; }
+  };
+
+  const empTypeMap = { FULLTIME: 'Full-time', PARTTIME: 'Part-time', CONTRACTOR: 'Contract', INTERN: 'Internship' };
+  const empLabel = empTypeMap[job.job_employment_type] || job.job_employment_type || '';
+  const locationStr = [job.job_city, job.job_state].filter(Boolean).join(', ') || 'India';
+  const salary = formatSalary(job.job_min_salary, job.job_max_salary, job.job_salary_currency);
+  const posted = formatPostedDate(job.job_posted_at_datetime_utc);
+  const desc = (job.job_description || '').slice(0, 180).replace(/<[^>]*>/g, '');
+
+  return (
+    <div style={{ background: THEME.bg.surface, border: `1px solid ${THEME.border.subtle}`, borderRadius: THEME.radius.lg, padding: THEME.spacing.lg, animation: 'fadeIn 0.3s ease', transition: 'border-color 0.2s, box-shadow 0.2s' }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = THEME.border.strong; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.2)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = THEME.border.subtle; e.currentTarget.style.boxShadow = 'none'; }}
+    >
+      <div style={{ display: 'flex', gap: THEME.spacing.md }}>
+        <div style={{ width: '44px', height: '44px', borderRadius: THEME.radius.md, background: THEME.bg.elevated, border: `1px solid ${THEME.border.subtle}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+          {job.employer_logo
+            ? <img src={job.employer_logo} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain', padding: '4px' }} onError={(e) => { e.target.style.display = 'none'; if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex'; }} />
+            : null
+          }
+          <div style={{ display: job.employer_logo ? 'none' : 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', fontFamily: THEME.font.display, fontWeight: 700, fontSize: '16px', color: THEME.accent.primary }}>
+            {(job.employer_name || '?')[0].toUpperCase()}
+          </div>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h3 style={{ fontFamily: THEME.font.display, fontSize: '15px', fontWeight: 600, color: THEME.text.primary, margin: 0, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.job_title}</h3>
+          <p style={{ fontSize: '13px', color: THEME.text.secondary, margin: '2px 0 0', fontWeight: 500 }}>{job.employer_name}</p>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: THEME.spacing.sm }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: THEME.text.muted, background: THEME.bg.elevated, padding: '3px 8px', borderRadius: '20px' }}>
+          <FiMapPin size={10} /> {locationStr}
+        </span>
+        {empLabel && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: THEME.status.applied.text, background: THEME.status.applied.bg, padding: '3px 8px', borderRadius: '20px' }}>{empLabel}</span>}
+        {salary && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: THEME.status.offer.text, background: THEME.status.offer.bg, padding: '3px 8px', borderRadius: '20px' }}><FiDollarSign size={10} /> {salary}</span>}
+        {posted && <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: THEME.text.muted, background: THEME.bg.elevated, padding: '3px 8px', borderRadius: '20px' }}><FiClock size={10} /> {posted}</span>}
+      </div>
+
+      {desc && <p style={{ fontSize: '12px', color: THEME.text.muted, lineHeight: 1.6, marginTop: THEME.spacing.sm, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{desc}...</p>}
+
+      <div style={{ display: 'flex', gap: THEME.spacing.sm, marginTop: THEME.spacing.md }}>
+        {job.job_apply_link && (
+          <a href={job.job_apply_link} target="_blank" rel="noopener noreferrer"
+            style={{ flex: 1, padding: '8px 12px', background: THEME.accent.primary, color: '#fff', border: 'none', borderRadius: THEME.radius.sm, fontWeight: 600, fontSize: '12px', fontFamily: THEME.font.body, cursor: 'pointer', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'opacity 0.15s', textAlign: 'center' }}
+            onMouseEnter={(e) => e.currentTarget.style.opacity = '0.85'}
+            onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+          >
+            Apply <FiExternalLink size={12} />
+          </a>
+        )}
+        <button onClick={() => onTrack(job)} disabled={tracked}
+          style={{ flex: 1, padding: '8px 12px', background: tracked ? THEME.status.offer.bg : 'transparent', color: tracked ? THEME.status.offer.text : THEME.text.secondary, border: `1px solid ${tracked ? THEME.status.offer.text : THEME.border.default}`, borderRadius: THEME.radius.sm, fontWeight: 500, fontSize: '12px', fontFamily: THEME.font.body, cursor: tracked ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', transition: 'all 0.15s' }}
+          onMouseEnter={(e) => { if (!tracked) { e.currentTarget.style.borderColor = THEME.accent.primary; e.currentTarget.style.color = THEME.accent.primary; } }}
+          onMouseLeave={(e) => { if (!tracked) { e.currentTarget.style.borderColor = THEME.border.default; e.currentTarget.style.color = THEME.text.secondary; } }}
+        >
+          {tracked ? <><FiCheck size={12} /> Tracked</> : <><FiPlusCircle size={12} /> Track</>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function JobCardSkeleton() {
+  const shimmer = { background: `linear-gradient(90deg, ${THEME.bg.elevated} 25%, ${THEME.border.subtle} 50%, ${THEME.bg.elevated} 75%)`, backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite', borderRadius: THEME.radius.sm };
+  return (
+    <div style={{ background: THEME.bg.surface, border: `1px solid ${THEME.border.subtle}`, borderRadius: THEME.radius.lg, padding: THEME.spacing.lg }}>
+      <style>{`@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }`}</style>
+      <div style={{ display: 'flex', gap: THEME.spacing.md }}>
+        <div style={{ ...shimmer, width: '44px', height: '44px', borderRadius: THEME.radius.md }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ ...shimmer, height: '16px', width: '70%', marginBottom: '8px' }} />
+          <div style={{ ...shimmer, height: '14px', width: '40%' }} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: '6px', marginTop: THEME.spacing.sm }}>
+        <div style={{ ...shimmer, height: '20px', width: '80px', borderRadius: '20px' }} />
+        <div style={{ ...shimmer, height: '20px', width: '60px', borderRadius: '20px' }} />
+      </div>
+      <div style={{ ...shimmer, height: '12px', width: '100%', marginTop: THEME.spacing.sm }} />
+      <div style={{ ...shimmer, height: '12px', width: '80%', marginTop: '4px' }} />
+      <div style={{ display: 'flex', gap: THEME.spacing.sm, marginTop: THEME.spacing.md }}>
+        <div style={{ ...shimmer, height: '34px', flex: 1, borderRadius: THEME.radius.sm }} />
+        <div style={{ ...shimmer, height: '34px', flex: 1, borderRadius: THEME.radius.sm }} />
+      </div>
+    </div>
+  );
+}
+
+function Sidebar({ currentPage, onNavigate, onApiKeyClick }) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: <FiHome size={18} /> },
     { id: 'applications', label: 'Applications', icon: <FiBriefcase size={18} /> },
+    { id: 'jobsearch', label: 'Job Search', icon: <FiGlobe size={18} /> },
     { id: 'add', label: 'Add New', icon: <FiPlusCircle size={18} /> },
     { id: 'analytics', label: 'Analytics', icon: <FiBarChart2 size={18} /> },
   ];
@@ -185,7 +446,10 @@ function Sidebar({ currentPage, onNavigate }) {
           );
         })}
       </nav>
-      <div style={{ padding: THEME.spacing.lg, borderTop: `1px solid ${THEME.border.subtle}`, fontSize: '11px', color: THEME.text.muted, fontFamily: THEME.font.mono }}>v1.0.0</div>
+      <div style={{ padding: `${THEME.spacing.sm} ${THEME.spacing.lg}`, borderTop: `1px solid ${THEME.border.subtle}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '11px', color: THEME.text.muted, fontFamily: THEME.font.mono }}>v1.1.0</span>
+        {onApiKeyClick && <button onClick={onApiKeyClick} title="API Key Settings" style={{ background: 'none', border: 'none', color: THEME.text.muted, cursor: 'pointer', padding: '4px', borderRadius: THEME.radius.sm, display: 'flex', transition: 'color 0.15s' }} onMouseEnter={(e) => e.currentTarget.style.color = THEME.accent.primary} onMouseLeave={(e) => e.currentTarget.style.color = THEME.text.muted}><FiKey size={14} /></button>}
+      </div>
     </div>
   );
 }
@@ -650,6 +914,173 @@ function AnalyticsPage() {
   );
 }
 
+// ─── Job Search Page ─────────────────────────────────────
+
+function JobSearchPage({ onNavigate }) {
+  const { addApplication, showToast } = useApp();
+  const { query, setQuery, results, loading, error, page, goToPage, employmentType, setEmploymentType, location, setLocation, refetch } = useJobSearch();
+  const [trackedIds, setTrackedIds] = useState(new Set());
+  const [showApiModal, setShowApiModal] = useState(false);
+
+  const handleTrack = useCallback((job) => {
+    const loc = [job.job_city, job.job_state].filter(Boolean).join(', ') || 'India';
+    const app = {
+      company: job.employer_name || 'Unknown',
+      role: job.job_title || 'Unknown Role',
+      location: loc,
+      salary: job.job_max_salary || job.job_min_salary || 0,
+      platform: 'Job Search',
+      status: 'Applied',
+      appliedDate: format(new Date(), 'yyyy-MM-dd'),
+      interviewDate: '',
+      notes: job.job_apply_link ? `Apply link: ${job.job_apply_link}` : '',
+      bookmarked: false,
+    };
+    addApplication(app);
+    setTrackedIds((prev) => new Set(prev).add(job.job_id));
+    showToast(`Tracking: ${job.employer_name} — ${job.job_title}`);
+  }, [addApplication, showToast]);
+
+  const chipStyle = (active) => ({
+    padding: '6px 14px',
+    background: active ? THEME.accent.primaryMuted : THEME.bg.elevated,
+    border: `1px solid ${active ? THEME.accent.primary : THEME.border.default}`,
+    borderRadius: '20px',
+    color: active ? THEME.accent.primary : THEME.text.secondary,
+    fontSize: '12px',
+    fontWeight: active ? 600 : 400,
+    fontFamily: THEME.font.body,
+    cursor: 'pointer',
+    transition: 'all 0.15s',
+    whiteSpace: 'nowrap',
+  });
+
+  const hasApiKey = (() => { try { return !!window.localStorage.getItem('sjt_rapidapi_key'); } catch { return false; } })();
+
+  return (
+    <div style={{ animation: 'fadeIn 0.3s ease' }}>
+      {showApiModal && <APIKeyModal onClose={() => setShowApiModal(false)} />}
+
+      <div style={{ marginBottom: THEME.spacing.lg }}>
+        <h1 style={{ fontFamily: THEME.font.display, fontSize: '24px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: THEME.spacing.sm }}>
+          <FiGlobe size={22} style={{ color: THEME.accent.primary }} /> Job Search
+        </h1>
+        <p style={{ color: THEME.text.muted, fontSize: '13px', marginTop: '4px' }}>Discover real-time job openings across India</p>
+      </div>
+
+      {!hasApiKey && (
+        <div style={{ background: `linear-gradient(135deg, ${THEME.accent.primaryMuted}, ${THEME.bg.surface})`, border: `1px solid ${THEME.accent.primary}40`, borderRadius: THEME.radius.lg, padding: THEME.spacing.xl, marginBottom: THEME.spacing.lg, textAlign: 'center' }}>
+          <FiKey size={32} style={{ color: THEME.accent.primary, marginBottom: THEME.spacing.sm }} />
+          <h3 style={{ fontFamily: THEME.font.display, fontSize: '16px', fontWeight: 600, marginBottom: THEME.spacing.sm }}>Set Up Your API Key</h3>
+          <p style={{ fontSize: '13px', color: THEME.text.secondary, maxWidth: '400px', margin: '0 auto', marginBottom: THEME.spacing.md, lineHeight: 1.6 }}>Get free access to real-time job listings. Sign up at RapidAPI and subscribe to JSearch (200 free requests/month).</p>
+          <button onClick={() => setShowApiModal(true)} style={{ padding: '10px 24px', background: THEME.accent.primary, color: '#fff', border: 'none', borderRadius: THEME.radius.sm, fontWeight: 600, fontSize: '13px', fontFamily: THEME.font.body, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <FiKey size={14} /> Configure API Key
+          </button>
+        </div>
+      )}
+
+      <div style={{ position: 'relative', marginBottom: THEME.spacing.md }}>
+        <FiSearch size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: THEME.text.muted }} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search jobs... e.g. React Developer, Data Analyst, Product Manager"
+          style={{ width: '100%', padding: '12px 14px 12px 40px', background: THEME.bg.surface, border: `1px solid ${THEME.border.default}`, borderRadius: THEME.radius.md, color: THEME.text.primary, fontSize: '14px', fontFamily: THEME.font.body, outline: 'none', transition: 'border-color 0.2s' }}
+          onFocus={(e) => e.target.style.borderColor = THEME.accent.primary}
+          onBlur={(e) => e.target.style.borderColor = THEME.border.default}
+        />
+        {loading && <div style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: THEME.accent.primary, animation: 'spin 1s linear infinite' }}><FiRefreshCw size={16} /></div>}
+        <style>{`@keyframes spin { from { transform: translateY(-50%) rotate(0deg); } to { transform: translateY(-50%) rotate(360deg); } }`}</style>
+      </div>
+
+      {!query && (
+        <div style={{ marginBottom: THEME.spacing.lg }}>
+          <p style={{ fontSize: '11px', fontWeight: 600, color: THEME.text.muted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: THEME.spacing.sm }}>Popular Searches</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            {POPULAR_SEARCHES.map((s) => (
+              <button key={s} onClick={() => setQuery(s)} style={{ ...chipStyle(false), background: THEME.bg.surface }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = THEME.accent.primary; e.currentTarget.style.color = THEME.accent.primary; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = THEME.border.default; e.currentTarget.style.color = THEME.text.secondary; }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: THEME.spacing.lg, marginBottom: THEME.spacing.md, flexWrap: 'wrap' }}>
+        <div>
+          <p style={{ fontSize: '11px', fontWeight: 600, color: THEME.text.muted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: THEME.spacing.xs }}>Location</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {INDIA_CITIES.map((city) => (
+              <button key={city} onClick={() => setLocation(city)} style={chipStyle(location === city)}>{city}</button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p style={{ fontSize: '11px', fontWeight: 600, color: THEME.text.muted, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: THEME.spacing.xs }}>Type</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {EMPLOYMENT_TYPES.map((t) => (
+              <button key={t.value} onClick={() => setEmploymentType(t.value)} style={chipStyle(employmentType === t.value)}>{t.label}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {error && error !== 'api_key_missing' && (
+        <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: THEME.radius.md, padding: THEME.spacing.md, marginBottom: THEME.spacing.md, display: 'flex', alignItems: 'center', gap: THEME.spacing.sm }}>
+          <FiX size={16} style={{ color: THEME.status.rejected.text, flexShrink: 0 }} />
+          <span style={{ fontSize: '13px', color: THEME.status.rejected.text, flex: 1 }}>{error}</span>
+          <button onClick={refetch} style={{ background: 'none', border: `1px solid ${THEME.status.rejected.text}`, borderRadius: THEME.radius.sm, color: THEME.status.rejected.text, padding: '4px 12px', fontSize: '12px', cursor: 'pointer', fontFamily: THEME.font.body, fontWeight: 500, display: 'flex', alignItems: 'center', gap: '4px' }}><FiRefreshCw size={12} /> Retry</button>
+        </div>
+      )}
+
+      {error === 'api_key_missing' && hasApiKey === false && !query && null}
+
+      {loading && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: THEME.spacing.md }}>
+          {[1, 2, 3, 4, 5, 6].map((i) => <JobCardSkeleton key={i} />)}
+        </div>
+      )}
+
+      {!loading && results.length > 0 && (
+        <>
+          <p style={{ fontSize: '12px', color: THEME.text.muted, marginBottom: THEME.spacing.md }}>
+            Showing {results.length} result{results.length !== 1 ? 's' : ''} for <strong style={{ color: THEME.text.secondary }}>"{query}"</strong> in <strong style={{ color: THEME.text.secondary }}>{location}</strong>
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: THEME.spacing.md }}>
+            {results.map((job) => (
+              <JobCard key={job.job_id} job={job} onTrack={handleTrack} tracked={trackedIds.has(job.job_id)} />
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: THEME.spacing.sm, marginTop: THEME.spacing.lg, paddingBottom: THEME.spacing.lg }}>
+            <button disabled={page <= 1} onClick={() => goToPage(page - 1)} style={{ background: 'none', border: `1px solid ${THEME.border.default}`, borderRadius: THEME.radius.sm, padding: '8px 14px', color: page <= 1 ? THEME.text.muted : THEME.text.secondary, cursor: page <= 1 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontFamily: THEME.font.body }}><FiChevronLeft size={14} /> Previous</button>
+            <span style={{ fontSize: '13px', color: THEME.text.secondary, fontFamily: THEME.font.mono, padding: '0 8px' }}>Page {page}</span>
+            <button disabled={results.length < 10} onClick={() => goToPage(page + 1)} style={{ background: 'none', border: `1px solid ${THEME.border.default}`, borderRadius: THEME.radius.sm, padding: '8px 14px', color: results.length < 10 ? THEME.text.muted : THEME.text.secondary, cursor: results.length < 10 ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontFamily: THEME.font.body }}>Next <FiChevronRight size={14} /></button>
+          </div>
+        </>
+      )}
+
+      {!loading && !error && query && results.length === 0 && (
+        <div style={{ textAlign: 'center', padding: THEME.spacing.xxl, color: THEME.text.muted }}>
+          <div style={{ fontSize: '40px', marginBottom: THEME.spacing.md, opacity: 0.3 }}>🔍</div>
+          <h3 style={{ fontFamily: THEME.font.display, fontSize: '16px', fontWeight: 600, color: THEME.text.secondary, marginBottom: THEME.spacing.sm }}>No jobs found</h3>
+          <p style={{ fontSize: '13px', maxWidth: '300px', margin: '0 auto' }}>Try different keywords or broaden your location filter.</p>
+        </div>
+      )}
+
+      {!query && !loading && (
+        <div style={{ textAlign: 'center', padding: THEME.spacing.xxl, color: THEME.text.muted }}>
+          <div style={{ fontSize: '40px', marginBottom: THEME.spacing.md, opacity: 0.3 }}>💼</div>
+          <h3 style={{ fontFamily: THEME.font.display, fontSize: '16px', fontWeight: 600, color: THEME.text.secondary, marginBottom: THEME.spacing.sm }}>Search for jobs</h3>
+          <p style={{ fontSize: '13px', maxWidth: '360px', margin: '0 auto' }}>Enter a job title or keyword above to discover real-time openings across India. Click "Track" to add jobs to your application list.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── App ─────────────────────────────────────────────────
 
 export default function App() {
@@ -666,11 +1097,13 @@ export default function App() {
 
 function AppInner({ currentPage, onNavigate }) {
   const { toasts } = useApp();
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard': return <DashboardPage onNavigate={onNavigate} />;
       case 'applications': return <ApplicationsPage onNavigate={onNavigate} />;
+      case 'jobsearch': return <JobSearchPage onNavigate={onNavigate} />;
       case 'add': return <AddPage onNavigate={onNavigate} />;
       case 'analytics': return <AnalyticsPage />;
       default: return <DashboardPage onNavigate={onNavigate} />;
@@ -680,11 +1113,12 @@ function AppInner({ currentPage, onNavigate }) {
   return (
     <>
       <style>{GLOBAL_STYLES}</style>
-      <Sidebar currentPage={currentPage} onNavigate={onNavigate} />
+      <Sidebar currentPage={currentPage} onNavigate={onNavigate} onApiKeyClick={() => setShowApiKeyModal(true)} />
       <main style={{ marginLeft: '220px', padding: THEME.spacing.xl, minHeight: '100vh' }}>
         {renderPage()}
       </main>
       <Toast toasts={toasts} />
+      {showApiKeyModal && <APIKeyModal onClose={() => setShowApiKeyModal(false)} />}
     </>
   );
 }
