@@ -23,18 +23,25 @@ A modern and intelligent **Smart Job Portal** web application designed to help u
 ## 🛠️ Tech Stack
 
 * **Frontend:** HTML, CSS, JavaScript
+* **Framework:** React
+* **Build Tool:** Vite
 * **Deployment:** GitHub Pages
 
 ---
 
 ## 📂 Project Structure
 
-```
+```bash
 smart-Job-portal/
+│── src/
+│   ├── components/
+│   ├── pages/
+│   ├── App.jsx
+│   └── main.jsx
+│── public/
 │── index.html
-│── style.css
-│── script.js
-│── assets/
+│── package.json
+│── vite.config.js
 ```
 
 ---
@@ -53,7 +60,17 @@ git clone https://github.com/lingangguliguli/smart-Job-portal.git
 cd smart-Job-portal
 ```
 
-3. Open `index.html` in your browser
+3. Install dependencies
+
+```bash
+npm install
+```
+
+4. Run the development server
+
+```bash
+npm run dev
+```
 
 ---
 
@@ -85,4 +102,5 @@ This project is open-source and available under the MIT License.
 Developed by **Arjun**
 
 ---
+
 
